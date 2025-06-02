@@ -1,24 +1,50 @@
-import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
-from tkinter import filedialog, messagebox
-import pandas as pd
-from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from pathlib import Path
+import sys
+print("Starting application...")
+print(f"Python version: {sys.version}")
+
+try:
+    print("Importing ttkbootstrap...")
+    import ttkbootstrap as ttk
+    print("ttkbootstrap imported successfully")
+    
+    print("Importing other modules...")
+    from ttkbootstrap.constants import *
+    from tkinter import filedialog, messagebox
+    import pandas as pd
+    from datetime import datetime
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from pathlib import Path
+    import win32com.client
+    import pythoncom
+    print("All modules imported successfully")
+
+except Exception as e:
+    print(f"Error during imports: {str(e)}")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+print("Defining ExcelOutlookApp class...")
 
 class ExcelOutlookApp:
     def __init__(self):
+        # Initialize the main window
         self.root = ttk.Window(themename="darkly")
         self.root.title("Excel Viewer & Email")
         self.root.geometry("1000x700")
+        
+        # Initialize variables
         self.df = None
         self.date_columns = []
         self.clear_button = None
-        self.outlook = None
+        
+        # Setup the basic UI
         self.setup_ui()
-        self.initialize_outlook()
+        
+        # Try to initialize Outlook later
+        self.outlook = None
+        self.contacts = []
         
     def setup_ui(self):
         # Main container with padding
@@ -29,7 +55,7 @@ class ExcelOutlookApp:
         top_frame = ttk.Frame(main_container)
         top_frame.pack(fill=X, pady=(0, 10))
         
-        # File selection frame with modern styling
+        # File selection frame
         file_frame = ttk.LabelFrame(top_frame, text="File Selection", padding="10")
         file_frame.pack(side=LEFT, fill=X, expand=YES)
         
@@ -51,49 +77,27 @@ class ExcelOutlookApp:
             bootstyle="danger"
         )
         
-        # Results frame with improved styling
+        # Results frame
         results_frame = ttk.LabelFrame(main_container, text="Excel Data", padding="10")
         results_frame.pack(fill=BOTH, expand=YES, pady=(0, 10))
         
-        # Create Treeview with scrollbars in a frame
+        # Create Treeview with scrollbars
         tree_frame = ttk.Frame(results_frame)
         tree_frame.pack(fill=BOTH, expand=YES, padx=5, pady=5)
         
-        # Style configuration for Treeview
-        style = ttk.Style()
-        style.configure(
-            "primary.Treeview",
-            rowheight=25,
-            background="#2f3136",  # Dark background
-            foreground="white",    # Light text
-            fieldbackground="#2f3136"  # Dark background for empty space
-        )
-        style.configure(
-            "primary.Treeview.Heading",
-            font=("Helvetica", 10, "bold"),
-            background="#202225",  # Darker background for headers
-            foreground="white"     # Light text for headers
-        )
-        style.map(
-            "primary.Treeview",
-            background=[("selected", "#7289da")],  # Discord-like selection color
-            foreground=[("selected", "white")]
-        )
-        
-        # Create scrollbars
+        # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, bootstyle="rounded")
         v_scrollbar.pack(side=RIGHT, fill=Y)
         
         h_scrollbar = ttk.Scrollbar(tree_frame, orient=HORIZONTAL, bootstyle="rounded")
         h_scrollbar.pack(side=BOTTOM, fill=X)
         
-        # Create Treeview with improved styling
+        # Create Treeview
         self.tree = ttk.Treeview(
             tree_frame,
             show="headings",
             yscrollcommand=v_scrollbar.set,
             xscrollcommand=h_scrollbar.set,
-            style="primary.Treeview",
             bootstyle="primary"
         )
         self.tree.pack(fill=BOTH, expand=YES)
@@ -102,72 +106,37 @@ class ExcelOutlookApp:
         v_scrollbar.config(command=self.tree.yview)
         h_scrollbar.config(command=self.tree.xview)
         
-        # Configure column sorting
-        self.tree.bind("<Button-1>", self.on_click_column)
-        
         # Configure tag for alternating row colors
-        self.tree.tag_configure("oddrow", background="#36393f")  # Slightly lighter dark for odd rows
+        self.tree.tag_configure("oddrow", background="#36393f")
         
-        # Email frame with improved layout
-        email_frame = ttk.LabelFrame(main_container, text="Email Configuration", padding="10")
-        email_frame.pack(fill=X)
+        # Try to initialize Outlook features
+        self.try_init_outlook()
         
-        # Grid layout for email configuration with better spacing
-        email_grid = ttk.Frame(email_frame)
-        email_grid.pack(fill=X, padx=10, pady=5)
-        
-        # Configure grid columns
-        email_grid.columnconfigure(1, weight=1)
-        
-        # Email fields with consistent spacing
-        ttk.Label(email_grid, text="To:").grid(row=0, column=0, padx=(0, 10), pady=5, sticky=W)
-        self.to_entry = ttk.Entry(email_grid)
-        self.to_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
-        
-        ttk.Label(email_grid, text="Subject:").grid(row=1, column=0, padx=(0, 10), pady=5, sticky=W)
-        self.subject_entry = ttk.Entry(email_grid)
-        self.subject_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
-        self.subject_entry.insert(0, "Excel Data")
-        
-        ttk.Label(email_grid, text="CC:").grid(row=2, column=0, padx=(0, 10), pady=5, sticky=W)
-        self.cc_entry = ttk.Entry(email_grid)
-        self.cc_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
-        
-        # Message body frame with improved styling
-        message_frame = ttk.LabelFrame(email_frame, text="Message", padding="10")
-        message_frame.pack(fill=X, padx=10, pady=10)
-        
-        self.message_text = ttk.Text(message_frame, height=4, width=50)
-        self.message_text.pack(fill=X, expand=YES)
-        
-        # Options frame with better organization
-        options_frame = ttk.Frame(email_frame)
-        options_frame.pack(fill=X, padx=10, pady=5)
-        
-        # Checkbuttons with improved styling
-        self.attach_excel_var = ttk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            options_frame,
-            text="Attach Excel File",
-            variable=self.attach_excel_var,
-            bootstyle="info-round-toggle"
-        ).pack(side=LEFT, padx=5)
-        
-        self.include_table_var = ttk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            options_frame,
-            text="Include Table in Email",
-            variable=self.include_table_var,
-            bootstyle="info-round-toggle"
-        ).pack(side=LEFT, padx=5)
-        
-        # Send button with improved styling
-        ttk.Button(
-            email_frame,
-            text="Send via Outlook",
-            command=self.send_email,
-            bootstyle="success"
-        ).pack(pady=10)
+    def try_init_outlook(self):
+        """Try to initialize Outlook integration"""
+        try:
+            import win32com.client
+            import pythoncom
+            
+            pythoncom.CoInitialize()
+            self.outlook = win32com.client.Dispatch("Outlook.Application")
+            print("Outlook integration enabled")
+            
+            # Add Outlook-specific UI elements
+            self.setup_email_ui()
+            
+        except Exception as e:
+            print(f"Outlook integration not available: {str(e)}")
+            # Continue without Outlook features
+            pass
+            
+    def setup_email_ui(self):
+        """Setup email UI elements - only called if Outlook is available"""
+        if not self.outlook:
+            return
+            
+        # Add email UI here later
+        pass
 
     def format_value(self, value, column):
         if column in self.date_columns:
@@ -379,9 +348,163 @@ class ExcelOutlookApp:
         return valid_columns
 
     def initialize_outlook(self):
-        # This method is now empty as the outlook initialization logic has been moved to a separate method
-        pass
+        """Initialize Outlook with better error handling"""
+        try:
+            print("\nInitializing Outlook...")
+            pythoncom.CoInitialize()  # Initialize COM for the thread
+            self.outlook = win32com.client.Dispatch("Outlook.Application")
+            print("Outlook COM object created successfully")
+            
+            # Test if Outlook is responding
+            namespace = self.outlook.GetNamespace("MAPI")
+            print("MAPI namespace accessed successfully")
+            
+            # Load contacts
+            self.load_outlook_contacts()
+            
+        except Exception as e:
+            print(f"\nError initializing Outlook: {str(e)}")
+            print("Detailed error information:")
+            import traceback
+            traceback.print_exc()
+            
+            # Show error but don't crash the application
+            messagebox.showwarning(
+                "Outlook Warning",
+                "Could not initialize Outlook. Email features will be disabled.\n\n"
+                f"Error: {str(e)}\n\n"
+                "Please ensure:\n"
+                "1. Outlook is installed and running\n"
+                "2. You have necessary permissions\n"
+                "3. You're logged into your Outlook account"
+            )
+            self.outlook = None
+            
+    def load_outlook_contacts(self):
+        """Load contacts with better error handling"""
+        if not self.outlook:
+            print("Outlook not initialized, skipping contact loading")
+            return
+            
+        try:
+            print("\nLoading Outlook contacts...")
+            namespace = self.outlook.GetNamespace("MAPI")
+            contacts_folder = namespace.GetDefaultFolder(10)  # 10 is the Contacts folder
+            contacts = contacts_folder.Items
+            
+            self.contacts = []
+            contact_count = 0
+            error_count = 0
+            
+            for contact in contacts:
+                try:
+                    if hasattr(contact, 'Email1Address') and contact.Email1Address:
+                        contact_info = {
+                            'name': getattr(contact, 'FullName', ''),
+                            'email': contact.Email1Address,
+                            'company': getattr(contact, 'CompanyName', ''),
+                            'department': getattr(contact, 'Department', '')
+                        }
+                        self.contacts.append(contact_info)
+                        contact_count += 1
+                        print(f"Loaded contact: {contact_info['name']} ({contact_info['email']})")
+                except Exception as contact_error:
+                    error_count += 1
+                    print(f"Error processing contact: {str(contact_error)}")
+                    continue
+            
+            print(f"\nContact loading complete:")
+            print(f"- Successfully loaded {contact_count} contacts")
+            if error_count > 0:
+                print(f"- Encountered {error_count} errors while loading contacts")
+            
+            if contact_count > 0:
+                messagebox.showinfo("Success", f"Loaded {contact_count} contacts from Outlook")
+                # Update the To: field autocomplete
+                self.setup_email_autocomplete()
+            else:
+                messagebox.showwarning(
+                    "No Contacts",
+                    "No contacts were found in Outlook.\n\n"
+                    "Please ensure you have contacts in your Outlook address book."
+                )
+            
+        except Exception as e:
+            print(f"\nError loading contacts: {str(e)}")
+            print("Detailed error information:")
+            import traceback
+            traceback.print_exc()
+            
+            messagebox.showwarning(
+                "Contact Loading Error",
+                "Could not load Outlook contacts.\n\n"
+                f"Error: {str(e)}\n\n"
+                "The application will continue without contact features."
+            )
+            
+    def setup_email_autocomplete(self):
+        """Setup autocomplete for email fields"""
+        if not self.contacts:
+            return
+            
+        # Create a list of email addresses for autocomplete
+        email_list = [f"{contact['name']} <{contact['email']}>" for contact in self.contacts]
+        
+        def autocomplete(event):
+            """Handle autocomplete for email fields"""
+            widget = event.widget
+            current_text = widget.get()
+            
+            if not current_text:
+                return
+                
+            matches = []
+            for email in email_list:
+                if current_text.lower() in email.lower():
+                    matches.append(email)
+            
+            if matches:
+                # If there's only one match and user pressed Tab, auto-fill it
+                if len(matches) == 1 and event.keysym == 'Tab':
+                    widget.delete(0, END)
+                    widget.insert(0, matches[0])
+                    return 'break'  # Prevent default Tab behavior
+                
+                # Show matches in a popup
+                popup = ttk.Toplevel(self.root)
+                popup.geometry(f"+{widget.winfo_rootx()}+{widget.winfo_rooty() + widget.winfo_height()}")
+                popup.overrideredirect(True)
+                
+                listbox = ttk.Listbox(popup, bootstyle="dark")
+                listbox.pack(fill=BOTH, expand=YES)
+                
+                for match in matches:
+                    listbox.insert(END, match)
+                
+                def on_select(event):
+                    if listbox.curselection():
+                        selected = listbox.get(listbox.curselection())
+                        widget.delete(0, END)
+                        widget.insert(0, selected)
+                        popup.destroy()
+                
+                listbox.bind('<<ListboxSelect>>', on_select)
+                listbox.bind('<Escape>', lambda e: popup.destroy())
+                
+                # Position the popup below the entry widget
+                popup.lift()
+                
+        # Bind autocomplete to email fields
+        self.to_entry.bind('<KeyRelease>', autocomplete)
+        self.cc_entry.bind('<KeyRelease>', autocomplete)
 
 if __name__ == "__main__":
-    app = ExcelOutlookApp()
-    app.root.mainloop() 
+    try:
+        print("Creating application instance...")
+        app = ExcelOutlookApp()
+        print("Starting main loop...")
+        app.root.mainloop()
+        print("Application closed normally")
+    except Exception as e:
+        print(f"Fatal error: {str(e)}")
+        input("Press Enter to exit...") 
