@@ -10,22 +10,28 @@ from pathlib import Path
 
 class ExcelOutlookApp:
     def __init__(self):
-        self.root = ttk.Window(themename="superhero")
+        self.root = ttk.Window(themename="darkly")
         self.root.title("Excel Viewer & Email")
         self.root.geometry("1000x700")
         self.df = None
         self.date_columns = []
-        self.clear_button = None  # Store reference to clear button
+        self.clear_button = None
+        self.outlook = None
         self.setup_ui()
+        self.initialize_outlook()
         
     def setup_ui(self):
-        # Main container
+        # Main container with padding
         main_container = ttk.Frame(self.root, padding="20")
         main_container.pack(fill=BOTH, expand=YES)
         
-        # File selection frame
-        file_frame = ttk.LabelFrame(main_container, text="File Selection", padding="10")
-        file_frame.pack(fill=X, pady=(0, 10))
+        # Top frame for file operations
+        top_frame = ttk.Frame(main_container)
+        top_frame.pack(fill=X, pady=(0, 10))
+        
+        # File selection frame with modern styling
+        file_frame = ttk.LabelFrame(top_frame, text="File Selection", padding="10")
+        file_frame.pack(side=LEFT, fill=X, expand=YES)
         
         self.file_label = ttk.Label(file_frame, text="No file selected")
         self.file_label.pack(side=LEFT, padx=(0, 10))
@@ -34,7 +40,7 @@ class ExcelOutlookApp:
             file_frame,
             text="Select Excel File",
             command=self.load_excel,
-            style="primary.TButton"
+            bootstyle="info"
         ).pack(side=LEFT, padx=(0, 10))
         
         # Create but don't pack the clear button yet
@@ -42,32 +48,53 @@ class ExcelOutlookApp:
             file_frame,
             text="Clear All",
             command=self.clear_all,
-            style="danger.TButton"
+            bootstyle="danger"
         )
         
-        # Results frame
+        # Results frame with improved styling
         results_frame = ttk.LabelFrame(main_container, text="Excel Data", padding="10")
         results_frame.pack(fill=BOTH, expand=YES, pady=(0, 10))
         
-        # Create Treeview with scrollbars
+        # Create Treeview with scrollbars in a frame
         tree_frame = ttk.Frame(results_frame)
-        tree_frame.pack(fill=BOTH, expand=YES)
+        tree_frame.pack(fill=BOTH, expand=YES, padx=5, pady=5)
         
-        # Create vertical scrollbar
-        v_scrollbar = ttk.Scrollbar(tree_frame)
+        # Style configuration for Treeview
+        style = ttk.Style()
+        style.configure(
+            "primary.Treeview",
+            rowheight=25,
+            background="#2f3136",  # Dark background
+            foreground="white",    # Light text
+            fieldbackground="#2f3136"  # Dark background for empty space
+        )
+        style.configure(
+            "primary.Treeview.Heading",
+            font=("Helvetica", 10, "bold"),
+            background="#202225",  # Darker background for headers
+            foreground="white"     # Light text for headers
+        )
+        style.map(
+            "primary.Treeview",
+            background=[("selected", "#7289da")],  # Discord-like selection color
+            foreground=[("selected", "white")]
+        )
+        
+        # Create scrollbars
+        v_scrollbar = ttk.Scrollbar(tree_frame, bootstyle="rounded")
         v_scrollbar.pack(side=RIGHT, fill=Y)
         
-        # Create horizontal scrollbar
-        h_scrollbar = ttk.Scrollbar(tree_frame, orient=HORIZONTAL)
+        h_scrollbar = ttk.Scrollbar(tree_frame, orient=HORIZONTAL, bootstyle="rounded")
         h_scrollbar.pack(side=BOTTOM, fill=X)
         
-        # Create Treeview
+        # Create Treeview with improved styling
         self.tree = ttk.Treeview(
             tree_frame,
-            show="headings",  # Hide the first empty column
+            show="headings",
             yscrollcommand=v_scrollbar.set,
             xscrollcommand=h_scrollbar.set,
-            style="primary.Treeview"
+            style="primary.Treeview",
+            bootstyle="primary"
         )
         self.tree.pack(fill=BOTH, expand=YES)
         
@@ -78,33 +105,70 @@ class ExcelOutlookApp:
         # Configure column sorting
         self.tree.bind("<Button-1>", self.on_click_column)
         
-        # Email frame
+        # Configure tag for alternating row colors
+        self.tree.tag_configure("oddrow", background="#36393f")  # Slightly lighter dark for odd rows
+        
+        # Email frame with improved layout
         email_frame = ttk.LabelFrame(main_container, text="Email Configuration", padding="10")
         email_frame.pack(fill=X)
         
-        # Grid layout for email configuration
-        ttk.Label(email_frame, text="SMTP Server:").grid(row=0, column=0, padx=5, pady=5)
-        self.smtp_entry = ttk.Entry(email_frame)
-        self.smtp_entry.grid(row=0, column=1, padx=5, pady=5, sticky=EW)
-        self.smtp_entry.insert(0, "smtp.gmail.com")
+        # Grid layout for email configuration with better spacing
+        email_grid = ttk.Frame(email_frame)
+        email_grid.pack(fill=X, padx=10, pady=5)
         
-        ttk.Label(email_frame, text="From:").grid(row=1, column=0, padx=5, pady=5)
-        self.from_entry = ttk.Entry(email_frame)
-        self.from_entry.grid(row=1, column=1, padx=5, pady=5, sticky=EW)
+        # Configure grid columns
+        email_grid.columnconfigure(1, weight=1)
         
-        ttk.Label(email_frame, text="To:").grid(row=2, column=0, padx=5, pady=5)
-        self.to_entry = ttk.Entry(email_frame)
-        self.to_entry.grid(row=2, column=1, padx=5, pady=5, sticky=EW)
+        # Email fields with consistent spacing
+        ttk.Label(email_grid, text="To:").grid(row=0, column=0, padx=(0, 10), pady=5, sticky=W)
+        self.to_entry = ttk.Entry(email_grid)
+        self.to_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
         
-        email_frame.columnconfigure(1, weight=1)
+        ttk.Label(email_grid, text="Subject:").grid(row=1, column=0, padx=(0, 10), pady=5, sticky=W)
+        self.subject_entry = ttk.Entry(email_grid)
+        self.subject_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
+        self.subject_entry.insert(0, "Excel Data")
         
+        ttk.Label(email_grid, text="CC:").grid(row=2, column=0, padx=(0, 10), pady=5, sticky=W)
+        self.cc_entry = ttk.Entry(email_grid)
+        self.cc_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=5, sticky=EW)
+        
+        # Message body frame with improved styling
+        message_frame = ttk.LabelFrame(email_frame, text="Message", padding="10")
+        message_frame.pack(fill=X, padx=10, pady=10)
+        
+        self.message_text = ttk.Text(message_frame, height=4, width=50)
+        self.message_text.pack(fill=X, expand=YES)
+        
+        # Options frame with better organization
+        options_frame = ttk.Frame(email_frame)
+        options_frame.pack(fill=X, padx=10, pady=5)
+        
+        # Checkbuttons with improved styling
+        self.attach_excel_var = ttk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            options_frame,
+            text="Attach Excel File",
+            variable=self.attach_excel_var,
+            bootstyle="info-round-toggle"
+        ).pack(side=LEFT, padx=5)
+        
+        self.include_table_var = ttk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            options_frame,
+            text="Include Table in Email",
+            variable=self.include_table_var,
+            bootstyle="info-round-toggle"
+        ).pack(side=LEFT, padx=5)
+        
+        # Send button with improved styling
         ttk.Button(
             email_frame,
-            text="Send Email",
+            text="Send via Outlook",
             command=self.send_email,
-            style="warning.TButton"
-        ).grid(row=3, column=0, columnspan=2, pady=10)
-        
+            bootstyle="success"
+        ).pack(pady=10)
+
     def format_value(self, value, column):
         if column in self.date_columns:
             try:
@@ -148,12 +212,25 @@ class ExcelOutlookApp:
         )
         if file_path:
             try:
-                # Read Excel file with date parsing
+                print(f"\nLoading Excel file: {file_path}")
+                # Read Excel file
                 self.df = pd.read_excel(
                     file_path,
-                    parse_dates=True,
-                    date_parser=lambda x: pd.to_datetime(x, errors='coerce')
+                    na_filter=True
                 )
+                
+                print(f"Initial columns: {list(self.df.columns)}")
+                print(f"Initial shape: {self.df.shape}")
+                
+                # Filter columns based on non-empty cell count
+                valid_columns = self.filter_sparse_columns()
+                if valid_columns:
+                    # Keep only columns with enough non-empty cells
+                    self.df = self.df[valid_columns]
+                    print(f"Final shape after filtering: {self.df.shape}")
+                else:
+                    messagebox.showwarning("Warning", "No columns with sufficient non-empty cells found!")
+                    return
                 
                 self.file_label.config(text=Path(file_path).name)
                 
@@ -162,7 +239,7 @@ class ExcelOutlookApp:
                 
                 # Detect date columns
                 self.detect_date_columns()
-                print(f"Detected date columns: {self.date_columns}")  # Debug info
+                print(f"Detected date columns: {self.date_columns}")
                 
                 # Clear existing tree items
                 for item in self.tree.get_children():
@@ -172,25 +249,27 @@ class ExcelOutlookApp:
                 columns = list(self.df.columns)
                 self.tree["columns"] = columns
                 
-                # Set column headings and widths
+                # Set column headings and widths with improved styling
                 for col in columns:
                     self.tree.heading(col, text=str(col), anchor=W)
                     # Calculate column width based on header and data
                     max_width = len(str(col)) * 10
                     for value in self.df[col]:
-                        formatted_value = self.format_value(value, col)
-                        width = len(str(formatted_value)) * 10
-                        if width > max_width:
-                            max_width = width
-                    self.tree.column(col, width=min(max_width, 300), anchor=W)
+                        if pd.notna(value) and value != "":
+                            formatted_value = self.format_value(value, col)
+                            width = len(str(formatted_value)) * 10
+                            if width > max_width:
+                                max_width = width
+                    self.tree.column(col, width=min(max_width, 300), anchor=W, minwidth=100)
                 
-                # Insert data with formatted dates
-                for index, row in self.df.iterrows():
-                    formatted_row = [self.format_value(row[col], col) for col in columns]
-                    self.tree.insert("", END, values=formatted_row)
+                # Insert data with alternating row colors
+                for i, row in enumerate(self.df.iterrows()):
+                    formatted_row = [self.format_value(row[1][col], col) for col in columns]
+                    self.tree.insert("", END, values=formatted_row, tags=('oddrow',) if i % 2 else ())
                 
-                messagebox.showinfo("Success", "Excel file loaded successfully!")
+                messagebox.showinfo("Success", f"Excel file loaded successfully!\nKept {len(columns)} columns that have at least 50 non-empty cells.")
             except Exception as e:
+                print(f"Error loading file: {str(e)}")
                 messagebox.showerror("Error", f"Failed to load Excel file: {str(e)}")
     
     def on_click_column(self, event):
@@ -274,6 +353,34 @@ class ExcelOutlookApp:
         self.clear_button.pack_forget()
         
         messagebox.showinfo("Success", "All data has been cleared!")
+
+    def filter_sparse_columns(self, min_nonempty=50, sample_size=180):
+        """Keep columns that have at least 50 non-empty cells in the first 180 rows."""
+        if len(self.df) == 0:
+            return []
+            
+        valid_columns = []
+        total_rows = min(len(self.df), sample_size)
+        print(f"\nAnalyzing first {total_rows} rows of each column:")
+        
+        for column in self.df.columns:
+            # Count non-empty cells (not NaN and not empty string) in the first sample_size rows
+            column_data = self.df[column].head(total_rows)
+            nonempty_count = (~column_data.isna() & (column_data != "")).sum()
+            print(f"Column '{column}': {nonempty_count} non-empty cells")
+            
+            if nonempty_count >= min_nonempty:
+                valid_columns.append(column)
+                print(f"  - Keeping column '{column}' ({nonempty_count} non-empty cells >= {min_nonempty})")
+            else:
+                print(f"  - Removing column '{column}' (only {nonempty_count} non-empty cells)")
+                
+        print(f"\nKept {len(valid_columns)} columns out of {len(self.df.columns)}")
+        return valid_columns
+
+    def initialize_outlook(self):
+        # This method is now empty as the outlook initialization logic has been moved to a separate method
+        pass
 
 if __name__ == "__main__":
     app = ExcelOutlookApp()
