@@ -2,77 +2,131 @@
 Simple test to verify Microsoft Graph API connectivity.
 First make sure to install required packages:
 pip install requests msal
+
+Before running:
+1. Copy config.py.template to config.py
+2. Update config.py with your Azure AD app registration details
+3. Ensure you have the required permissions in Azure Portal
 """
 
 import msal
 import requests
 import json
 import sys
+import os
+from typing import Optional
 
-# Your app registration details
-CLIENT_ID = "62cdf836-66d1-4f06-9a7d-601335815fbf"
-TENANT_ID = "3229079a-de06-4e7b-bdbf-380cbbd0a379"
+# Check for config file
+if not os.path.exists('config.py'):
+    print("Error: config.py not found!")
+    print("Please copy config.py.template to config.py and update the settings.")
+    print("See README.md for setup instructions.")
+    sys.exit(1)
 
-# Authentication settings
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPES = ['https://graph.microsoft.com/.default']
+try:
+    from config import CLIENT_ID, TENANT_ID, AUTHORITY, SCOPES
+except ImportError as e:
+    print(f"Error importing configuration: {e}")
+    print("Please ensure config.py contains all required settings.")
+    sys.exit(1)
 
-def get_access_token():
+def verify_configuration() -> bool:
+    """Verify the configuration settings."""
+    if CLIENT_ID == "YOUR_CLIENT_ID":
+        print("Error: Please update CLIENT_ID in config.py")
+        return False
+    
+    if not CLIENT_ID or not TENANT_ID:
+        print("Error: Missing required configuration.")
+        print("Please ensure CLIENT_ID and TENANT_ID are set in config.py")
+        return False
+    
+    return True
+
+def verify_tenant() -> bool:
+    """Verify the tenant exists and is accessible."""
+    print("\nVerifying tenant access...")
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.get(
+            f'https://login.microsoftonline.com/{TENANT_ID}/v2.0/.well-known/openid-configuration',
+            headers=headers
+        )
+        if response.status_code == 200:
+            tenant_info = response.json()
+            print("✓ Tenant verification successful!")
+            if TENANT_ID == "organizations":
+                print("✓ Multi-tenant configuration detected")
+            else:
+                print(f"Tenant name: {tenant_info.get('token_endpoint', '').split('/')[3]}")
+            return True
+        else:
+            print("✗ Error verifying tenant:")
+            print(f"Status code: {response.status_code}")
+            print("Response:", response.text)
+            return False
+    except Exception as e:
+        print("✗ Error verifying tenant:")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        return False
+
+def get_access_token() -> Optional[str]:
+    """Get an access token using device code flow."""
+    if not verify_configuration():
+        return None
+
+    if not verify_tenant():
+        return None
+
     print("\nInitializing authentication...")
-    print(f"Using tenant ID: {TENANT_ID}")
-    print(f"Requesting scopes: {', '.join(SCOPES)}")
+    print(f"Authority URL: {AUTHORITY}")
+    print(f"Client ID: {CLIENT_ID[:8]}...{CLIENT_ID[-4:]}")
     
     try:
-        # Initialize the MSAL app as a public client application
+        print("\nCreating MSAL application instance...")
         app = msal.PublicClientApplication(
             client_id=CLIENT_ID,
             authority=AUTHORITY
         )
+        print("✓ MSAL application instance created")
         
-        # Clear token cache to ensure fresh authentication
-        accounts = app.get_accounts()
-        for account in accounts:
-            app.remove_account(account)
-        
-        print("\nStarting new authentication flow...")
-        
-        # Get token using device code flow
-        flow = app.initiate_device_flow(scopes=SCOPES)
+        # Try the simplest possible scope first
+        print("\nTrying authentication with minimal scope (User.Read)...")
+        flow = app.initiate_device_flow(scopes=["User.Read"])
         
         if "user_code" not in flow:
-            print("\nError: Could not create device flow")
-            print("Full error details:", json.dumps(flow, indent=2))
+            print("\n✗ Failed to create device flow")
+            print("Error details:", json.dumps(flow, indent=2))
+            print("\nTroubleshooting steps:")
+            print("1. Go to Azure Portal > App registrations")
+            print("2. Find your application")
+            print("3. Under 'Authentication' tab, verify:")
+            print("   - Platform is configured as 'Mobile and desktop applications'")
+            print("   - Redirect URI includes 'http://localhost'")
+            print("   - Allow public client flows is set to 'Yes'")
+            print("4. Under 'API permissions' tab, verify:")
+            print("   - User.Read permission is added")
+            print("   - Admin consent is granted (green check mark)")
             return None
         
         print("\n=== Authentication Required ===")
-        print("1. Open this URL in your browser:", flow["verification_uri"])
-        print("2. Enter this code when prompted:", flow["user_code"])
-        print("\nWaiting for you to complete the authentication...")
+        print(f"1. Open this URL: {flow['verification_uri']}")
+        print(f"2. Enter this code: {flow['user_code']}")
+        print("\nWaiting for authentication...")
         
-        # Wait for user to complete the flow
         result = app.acquire_token_by_device_flow(flow)
         
         if "access_token" in result:
-            print("Successfully acquired token!")
-            # Print token details for debugging
+            print("✓ Authentication successful!")
             print("\nToken details:")
             print(f"Expires in: {result.get('expires_in', 'unknown')} seconds")
             print(f"Granted scopes: {result.get('scope', 'unknown')}")
-            print("\nRequested scopes vs Granted scopes:")
-            print("Requested:", SCOPES)
-            granted_scopes = result.get('scope', '').split(' ')
-            print("Granted:", granted_scopes)
-            
-            # Check if all requested scopes were granted
-            missing_scopes = [scope for scope in SCOPES if scope not in granted_scopes]
-            if missing_scopes:
-                print("\nWARNING: Some requested scopes were not granted:")
-                for scope in missing_scopes:
-                    print(f"  - {scope}")
-            
             return result["access_token"]
         else:
-            print("\nError getting token!")
+            print("\n✗ Authentication failed!")
             print("Error type:", result.get("error"))
             print("Error description:", result.get("error_description"))
             print("\nFull error details:", json.dumps(result, indent=2))
@@ -82,11 +136,12 @@ def get_access_token():
         print("\nUnexpected error during authentication:")
         print(f"Error type: {type(e).__name__}")
         print(f"Error message: {str(e)}")
+        print("\nPlease verify your internet connection and try again.")
         return None
 
 def test_connection():
     print("=== Testing Microsoft Graph API Connection ===")
-    print("Using public client authentication with tenant-specific endpoint...")
+    print("Using multi-tenant configuration with device code flow...")
     
     # Get token
     token = get_access_token()
@@ -95,20 +150,37 @@ def test_connection():
         return
     
     print("\nTesting API connection...")
-    print(f"Token preview (first 50 chars): {token[:50]}...")
     
     # Test API call
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Prefer': 'outlook.body-content-type="text"',
-        'ConsistencyLevel': 'eventual'
+        'Accept': 'application/json'
     }
     
     try:
-        # Try to get user profile first
-        print("\n1. Testing user profile access...")
+        # First, get organization details to confirm which tenant we're connected to
+        print("\n1. Testing organization access...")
+        org_response = requests.get(
+            'https://graph.microsoft.com/v1.0/organization',
+            headers=headers
+        )
+        
+        if org_response.status_code == 200:
+            org_data = org_response.json()
+            if 'value' in org_data and len(org_data['value']) > 0:
+                org = org_data['value'][0]
+                print("\n✓ Organization details:")
+                print(f"Name: {org.get('displayName')}")
+                print(f"Tenant ID: {org.get('id')}")
+                print(f"Domain: {org.get('verifiedDomains', [{}])[0].get('name', 'N/A')}")
+        else:
+            print("✗ Could not fetch organization details")
+            print(f"Status code: {org_response.status_code}")
+            print("Response:", org_response.text)
+        
+        # Try to get user profile
+        print("\n2. Testing user profile access...")
         response = requests.get(
             'https://graph.microsoft.com/v1.0/me',
             headers=headers
@@ -119,6 +191,7 @@ def test_connection():
             print("✓ Profile access successful!")
             print(f"Connected as: {user_data.get('displayName')}")
             print(f"Email: {user_data.get('userPrincipalName')}")
+            print(f"Account type: {'Guest' if '#EXT#' in user_data.get('userPrincipalName', '') else 'Member'}")
             
             # Print user's roles and permissions if available
             print("\nUser details:")
@@ -130,18 +203,16 @@ def test_connection():
             return
             
         # Try to get mailbox settings with more detailed error handling
-        print("\n2. Testing mailbox settings access...")
-        print("Trying beta endpoint for more detailed errors...")
+        print("\n3. Testing mailbox settings access...")
+        print("Making request to mailbox settings...")
         
-        # First try beta endpoint
         mailbox_response = requests.get(
-            'https://graph.microsoft.com/beta/me/mailboxSettings',
+            'https://graph.microsoft.com/v1.0/me/mailboxSettings',
             headers=headers
         )
         
-        print("\nMailbox Settings Response (beta):")
+        print("\nMailbox Settings Response:")
         print(f"Status Code: {mailbox_response.status_code}")
-        print("Response Headers:", json.dumps(dict(mailbox_response.headers), indent=2))
         
         if mailbox_response.status_code != 200:
             print("\n✗ Error accessing mailbox settings:")
@@ -152,30 +223,20 @@ def test_connection():
             except:
                 print("\nCould not parse error response as JSON. Raw response:")
                 print("Raw response text:", mailbox_response.text)
-                
-                # Try v1.0 endpoint as fallback
-                print("\nTrying v1.0 endpoint as fallback...")
-                mailbox_response = requests.get(
-                    'https://graph.microsoft.com/v1.0/me/mailboxSettings',
-                    headers=headers
-                )
-                print(f"V1.0 Status Code: {mailbox_response.status_code}")
-                try:
-                    error_data = mailbox_response.json()
-                    print("V1.0 Response:", json.dumps(error_data, indent=2))
-                except:
-                    print("V1.0 Raw response:", mailbox_response.text)
             
-            print("\nTroubleshooting steps:")
+            print("\nTroubleshooting steps for multi-tenant setup:")
             print("1. Verify these permissions are granted in Azure Portal:")
-            print("   - Mail.ReadBasic")
+            print("   - User.Read")
+            print("   - Mail.Read")
             print("   - MailboxSettings.Read")
-            print("2. Ensure admin consent is granted for these permissions")
-            print("3. Check if the authenticated user has a valid Exchange Online license")
-            print("4. Try revoking and re-granting permissions in Azure Portal")
+            print("2. Ensure admin consent is granted in BOTH:")
+            print("   - The app's home tenant")
+            print("   - The current user's tenant")
+            print("3. Check if the authenticated user has required licenses")
+            print("4. For guest accounts, verify Exchange Online access is granted")
             return
             
-        print("\nMailbox settings access successful!")
+        print("\n✓ Mailbox settings access successful!")
         print(json.dumps(mailbox_response.json(), indent=2))
             
     except Exception as e:
